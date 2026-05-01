@@ -62,6 +62,7 @@ print(p.get('firstName',''), p.get('lastName',''), '|', d.get('id','NOT FOUND'))
 | Alerts for a patient | Pattern 9 | `uc_client.py alerts <memberId>` |
 | Unread patient messages / chat inbox | CHS endpoints (see below) | curl direct (not uc_client.py) |
 | A raw API call | Direct call | `uc_client.py get <path>` or `post <path> <json>` |
+| MTPR Step-1 BP enrichment (PP, stages, variability, weekly funnel) | See "MTPR Step-1 Enrichment" below | `build_step1_enrichment.py [in.csv] [out.csv]` |
 
 ---
 
@@ -140,6 +141,38 @@ Normal ranges for flagging:
 
 ---
 
+## MTPR Step-1 Enrichment
+
+`scripts/build_step1_enrichment.py` is the BP-enrichment stage of the MTPR
+pipeline. It reads a Step-2 CSV row-by-row, calls `POST measurement/list`
+for each patient over the 6 weeks ending on `MTPR Date`, and inserts derived
+BP columns *between* the Step-1 raw and Step-2 columns.
+
+```bash
+export UC_SESSION_TOKEN="<jwt>"               # use /gen-jwt prod
+export UC_BASE_URL="https://uc-prod.ihealth-eng.com/v1/uc"   # default; set dev URL for dev
+python3 scripts/build_step1_enrichment.py path/to/step2.csv path/to/step1full.csv
+```
+
+Without args it falls back to `./mtpr_table_10patients_step2.csv` →
+`./mtpr_table_10patients_step1full.csv`.
+
+Required input columns: `Patient`, `Patient ID`, `MTPR Date`,
+`BP Curr (avg)`, `BP Prev (avg)` (avg cells in `"114.3/73.7 (n=47)"` form).
+Rows where both avg cells are blank are skipped.
+
+Added columns (all 28):
+- **Pulse pressure**: `PP_Curr`, `PP_Prev`, `PP_Delta`, `PP_Class`, `PP_Trend`
+- **ACC/AHA stages**: `Stage_SBP_Curr`, `Stage_DBP_Curr`, `Stage_Overall_Curr`,
+  `Stage_SBP_Prev`, `Stage_DBP_Prev`, `Stage_Mismatch`, `ISH_Flag`
+- **Variability (last 30d)**: `BP_SBP_SD`, `BP_DBP_SD`, `Variability_Flag`
+- **Extremes (last 30d)**: `Count_SBP_180plus`, `Count_DBP_120plus`,
+  `Count_SBP_under90`, `Count_DBP_under60`, `Extreme_Flag`
+- **Weekly funnel**: `BP_W1`..`BP_W6` (W1 = most recent 7d ending MTPR Date)
+- **2W vs 2W**: `BP_2W_Curr`, `BP_2W_Prev`
+
+---
+
 ## Patient Messages (CHS — Chat History Service)
 
 Patient chat messages use a **separate base path** (`/chs/`) — the `uc_client.py` `/v1/uc/` client does NOT cover these. Use direct curl with the token.
@@ -215,6 +248,7 @@ To find others: `python3 scripts/uc_client.py my-patients`
 | `references/endpoints.md` | All 20 endpoint categories with request/response shapes |
 | `references/query-patterns.md` | 8 multi-step workflows for common user intents |
 | `scripts/uc_client.py` | Python client — auth, HTTP, high-level helpers, CLI |
+| `scripts/build_step1_enrichment.py` | MTPR Step-1 BP enrichment — pulls 6 weeks of `measurement/list` BP readings per patient and adds derived columns (PP, ACC/AHA stages, variability, extremes, weekly + 2W funnels) |
 
 ---
 
