@@ -19,19 +19,23 @@ provides (or has previously provided) a 24-char hex ID, call the
 
 ## Tool to call
 
-`get_ca_patient_count(reviewer_id: string) -> { reviewer_id, patient_count, total_reported_by_api, sample_patients[] }`
+`get_ca_patient_count(reviewer_id: string) -> { reviewer_id, role_used, all_roles[], patient_count, sample_patients[] }`
 
-The tool calls `POST /v1/uc/patient/assign/list` with `assignees: [reviewer_id]`
-and a page count of 500. It returns:
-- `patient_count` — number of patients returned in the page (the answer to most questions).
-- `total_reported_by_api` — server-reported total if present (may be null on some endpoints).
-- `note` — non-null warning if the page limit was hit, meaning the true count may be higher.
-- `sample_patients` — first 5 patients with `memberId` + `name`, useful for sanity-checking that the IDs map to real people.
+Internally the tool:
+1. Calls `GET /v1/uc/employees/{reviewer_id}` to discover the reviewer's roles.
+2. Picks the first known role (CA → `assignedToCAIn`, RD → `assignedToRDIn`, HC, MA, MD/Doctor, etc.). Defaults to CA.
+3. Calls `POST /v1/uc/patient/home-list` with `filter.assignee.<filterKey>.in = [reviewer_id]` and `pageInfo.size = 1`, then reads `data.totalSize`.
+
+Returned fields:
+- `patient_count` — `totalSize` from the response (the authoritative answer).
+- `role_used` — which role the count is for (most reviewers are CA).
+- `all_roles` — every active role the reviewer holds; helpful if `patient_count` looks wrong (they may have patients under a different role).
+- `sample_patients` — `{memberId, name}` for the most-recently-enrolled patient, just for sanity-checking.
 
 ## Rules
 
-- Lead with the count, plainly. Example: "**Reviewer `62d83cff…` has 47 patients.**"
-- If `note` is non-null (page limit hit), say so explicitly.
-- Surface `total_reported_by_api` only if it differs from `patient_count` — otherwise it's redundant.
-- Do not list every patient by default. Only mention names if the user asked for a list, in which case use `sample_patients` and note that it's a sample.
+- Lead with the count, plainly. Example: "**Reviewer `62d83cff…` has 531 patients (as CA).**"
+- If `all_roles` contains more than one role, mention it: "She also holds RD role; this count is just CA-assigned patients."
+- Surface `sample_patients` only if the user asks for a list of names. Default response is just the count.
 - If the user asks about a NAME without an ID, say you need the 24-char hex ID first.
+- If `error` is set, say the lookup failed and include the error message.
